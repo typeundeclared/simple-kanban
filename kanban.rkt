@@ -8,6 +8,7 @@
          kanban-programs
          ;helpers
          possible-states
+         primary-states
          next-state
          previous-state
          map-state-to-integer
@@ -32,7 +33,7 @@
   (query-exec
    (kanban-db a-kanban)
    "INSERT INTO tasks (title, program, state, start_date) VALUES (?, ?, ?, ?)"
-   title program (map-state-to-integer 'open) (date->julian/scalinger (current-date))))
+   title program (map-state-to-integer 'open) (current-seconds)))
 
 (define (kanban-update-task-state! a-kanban id new-state)
   (print id)
@@ -40,42 +41,59 @@
   (query-exec
    (kanban-db a-kanban)
    "UPDATE tasks SET state=? WHERE id=?"
-   (map-state-to-integer new-state) id))
+   (map-state-to-integer new-state) id)
+  (when (eq? new-state 'closed)
+      (query-exec
+       (kanban-db a-kanban)
+       "UPDATE tasks set end_date=? where id=?"
+       (current-seconds) id)))
 
-(define possible-states '(open working closed))
+(define possible-states '(backlog open working closed archived))
+(define primary-states '(open working closed))
 (define (next-state state)
   (case state
+    [(backlog) 'open]
     [(open) 'working]
     [(working) 'closed]
-    [(closed) 'closed]))
+    [(closed) 'archived]
+    [(archived) 'archived]))
 (define (previous-state state)
   (case state
-    [(open) 'open]
+    [(backlog) 'backlog]
+    [(open) 'backlog]
     [(working) 'open]
-    [(closed) 'working]))
+    [(closed) 'working]
+    [(archived) 'closed]))
 (define (map-state-to-integer state)
   (case state
-    [(open) 0]
-    [(working) 1]
-    [(closed) 2]))
+    [(backlog) 0]
+    [(open) 1]
+    [(working) 2]
+    [(closed) 3]
+    [(archived) 4]))
 (define (map-integer-to-state integer)
   (case integer
-    [(0) 'open]
-    [(1) 'working]
-    [(2) 'closed]))
+    [(0) 'backlog]
+    [(1) 'open]
+    [(2) 'working]
+    [(3) 'closed]
+    [(4) 'archived]))
   
-(struct task (id title program state) #:mutable)
+(struct task (id title program state start-date end-date) #:mutable)
 
 (define (kanban-programs a-kanban)
-    (for/list ([p (in-query (kanban-db a-kanban)
-                "select program from tasks group by program order by program")])
-      p))
+  (for/list ([p (in-query (kanban-db a-kanban)
+                          "select program from tasks group by program order by program")])
+    p))
 
-(define (kanban-tasks a-kanban state)
+(define kanban-query-all-tasks
+  "select id, title, program, state, start_date, end_date from tasks order by state, program, start_date")
+(define kanban-query-tasks-by-state
+  "select id, title, program, state, start_date, end_date from tasks where state=? order by state, program, start_date")
+(define (kanban-tasks a-kanban [state "ANY"])
   (define results
-    (query-rows (kanban-db a-kanban)
-                "select id, title, program, state, start_date from tasks where state=? order by state, program, start_date"
-                (map-state-to-integer state)))
-  (map (lambda (x)
-         (task (vector-ref x 0) (vector-ref x 1) (vector-ref x 2) (map-integer-to-state (vector-ref x 3))))
-       results))
+    (if (eq? state "ANY")
+        (in-query (kanban-db a-kanban) kanban-query-all-tasks)
+        (in-query (kanban-db a-kanban) kanban-query-tasks-by-state (map-state-to-integer state))))
+  (for/list ([(id title program state start end) results])
+    (task id title program (map-integer-to-state state) start end)))

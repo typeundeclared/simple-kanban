@@ -1,8 +1,10 @@
 #lang web-server
+(require racket/date)
 (require web-server/formlets)
 (require web-server/dispatch)
 (require web-server/servlet web-server/servlet-env)
 (require "kanban.rkt")
+
 
 ;;;;;;;;;;;;;;;;;;;;;
 
@@ -33,6 +35,7 @@
                                    (values "<" previous-state)
                                    (values ">" next-state))])
     (define new-state (dir-func (task-state a-task)))
+    (print new-state)
     (if (eq? new-state (task-state a-task))
         sym
         `(form ([action ,(task-url change-task-state)])
@@ -52,19 +55,23 @@
             ,(render-task-button a-task 'next)
             (br)
             (div ((style ,(string-join (list "color:" (second (assoc (task-program a-task) program-color-list))))))
-                 ,(task-program a-task)))))
+                 ,(task-program a-task))
+            ,(if (eq? 'archived (task-state a-task))
+                 (date->string (seconds->date (task-end-date a-task)))
+                 "")
+             )))
 
 (define (render-tasks a-task-list program-color-list)
   `(div ((class "tasks"))
         (ul
          ,@(map (λ (x) (render-task x program-color-list)) a-task-list))))
 
-(define (render-task-column a-kanban state)
+(define (render-task-column a-kanban state program-colors-assoc)
   `(td
-    ,(render-tasks (kanban-tasks a-kanban state)
-                   (program-colors (kanban-programs a-kanban)))))
+    ,(render-tasks (kanban-tasks a-kanban state) program-colors-assoc)))
 
 (define (render-tasks-page a-kanban request)
+  (define program-colors-assoc (program-colors (kanban-programs a-kanban)))
   (response/xexpr
    `(html (head (title "My Task List"))
           (body (h1 "My Tasks")
@@ -74,12 +81,17 @@
                 ;(a ((href ,(task-url list-programs))) "Programs")
                 (table
                  (tr
-                  ,@(map (λ (x) `(th ,(state-to-string x))) possible-states))
+                  ,@(map (λ (x) `(th ,(state-to-string x))) primary-states))
                  (tr
-                  ,@(map (λ (x) (render-task-column a-kanban x)) possible-states)))
+                  ,@(map (λ (x) (render-task-column a-kanban x program-colors-assoc)) primary-states)))
                 (form ([action ,(task-url submit-task)])
                       ,@(formlet-display new-task-formlet)
-                      (input ([type "submit"])))))))
+                      (input ([type "submit"])))
+                (h2 "Backlog Tasks")
+                (ul ,@(map (λ (x) (render-task x program-colors-assoc)) (kanban-tasks a-kanban 'backlog)))
+                (h2 "Archived")
+                (ul ,@(map (λ (x) (render-task x program-colors-assoc)) (kanban-tasks a-kanban 'archived)))
+                ))))
 
 (define (handle-task-submission a-kanban request)
   (define-values (title program)
