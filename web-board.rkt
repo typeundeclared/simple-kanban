@@ -3,10 +3,12 @@
 (require web-server/formlets)
 (require web-server/dispatch)
 (require web-server/servlet web-server/servlet-env)
-(require "kanban.rkt")
+(require "kanban.rkt" "kanban-types.rkt")
 
 
 ;;;;;;;;;;;;;;;;;;;;;
+
+(define table-states '(open working closed))
 
 (define (state-to-string state)
   (case state
@@ -45,21 +47,21 @@
                (input ([type "hidden"]
                        [name "new-state"]
                        [value ,(number->string
-                                (map-state-to-integer new-state))]))
+                                (State->Value new-state))]))
                (input ([class "statebutton"] [type "submit"] [value ,sym]))))))
     
 (define (render-task a-task program-color-list)
   `(li (div ((class "task"))
             ,(render-task-button a-task 'previous)
-            ,(task-title a-task)
+            (a ((href ,(task-url task-details (number->string (task-id a-task))))) ,(task-title a-task))
             ,(render-task-button a-task 'next)
             (br)
             (div ((style ,(string-join (list "color:" (second (assoc (task-program a-task) program-color-list))))))
                  ,(task-program a-task))
             ,(if (eq? 'archived (task-state a-task))
-                 (date->string (seconds->date (task-end-date a-task)))
+                 (date->string (task-end-date a-task))
                  "")
-             )))
+            )))
 
 (define (render-tasks a-task-list program-color-list)
   `(div ((class "tasks"))
@@ -68,7 +70,7 @@
 
 (define (render-task-column a-kanban state program-colors-assoc)
   `(td
-    ,(render-tasks (kanban-tasks a-kanban state) program-colors-assoc)))
+    ,(render-tasks (kanban-query-tasks-by-state a-kanban state) program-colors-assoc)))
 
 (define (render-tasks-page a-kanban request)
   (define program-colors-assoc (program-colors (kanban-programs a-kanban)))
@@ -81,17 +83,35 @@
                 ;(a ((href ,(task-url list-programs))) "Programs")
                 (table
                  (tr
-                  ,@(map (λ (x) `(th ,(state-to-string x))) primary-states))
+                  ,@(map (λ (x) `(th ,(string-titlecase (symbol->string x)))) table-states))
                  (tr
-                  ,@(map (λ (x) (render-task-column a-kanban x program-colors-assoc)) primary-states)))
+                  ,@(map (λ (x) (render-task-column a-kanban x program-colors-assoc)) table-states)))
                 (form ([action ,(task-url submit-task)])
                       ,@(formlet-display new-task-formlet)
                       (input ([type "submit"])))
                 (h2 "Backlog Tasks")
-                (ul ,@(map (λ (x) (render-task x program-colors-assoc)) (kanban-tasks a-kanban 'backlog)))
+                (ul ,@(map (λ (x) (render-task x program-colors-assoc))
+                           (kanban-query-tasks-by-state a-kanban 'backlog)))
                 (h2 "Archived")
-                (ul ,@(map (λ (x) (render-task x program-colors-assoc)) (kanban-tasks a-kanban 'archived)))
+                (ul ,@(map (λ (x) (render-task x program-colors-assoc))
+                           (kanban-query-tasks-by-state a-kanban 'archived)))
                 ))))
+
+(define (render-task-details global-kanban id request)
+  (define tsk (kanban-query-task global-kanban (string->number id)))
+  (response/xexpr
+   `(html (head (title "Task" ,(task-title tsk)))
+          (body
+           (link ((rel "stylesheet")
+                  (href "/kanban.css")
+                  (type "text/css")))
+           "Title:" ,(task-title tsk) (br)
+           "Program:" ,(task-program tsk) (br)
+           "State:" ,(string-titlecase (symbol->string (task-state tsk))) (br)
+           "Created:" ,(date->string (task-start-date tsk)) (br)
+           "Completed:" ,(if (<= 2000 (date-year (task-end-date tsk)))
+                             (date->string (task-end-date tsk))
+                             "")))))
 
 (define (handle-task-submission a-kanban request)
   (define-values (title program)
@@ -103,7 +123,7 @@
   (define bindings (request-bindings request))
   (kanban-update-task-state! a-kanban
                              (string->number (extract-binding/single 'id bindings))
-                             (map-integer-to-state (string->number (extract-binding/single 'new-state bindings))))
+                             (Value->State (string->number (extract-binding/single 'new-state bindings))))
   (redirect-to (task-url list-tasks)))
 
 ;(define (render-programs-page a-task-list request)
@@ -125,15 +145,15 @@
   (handle-task-submission global-kanban request))
 (define (change-task-state request)
   (handle-task-state-change global-kanban request))
-
-;(define (list-programs request)
-;  (render-programs-page tasks request))
+(define (task-details request id)
+  (render-task-details global-kanban id request))
 
 (define-values (task-dispatch task-url)
   (dispatch-rules
    [("") list-tasks]
    [("new-task") submit-task]
    [("update-task") change-task-state]
+   [("task" (string-arg)) task-details]
    ;    [("programs") list-programs]
    ;[("programs" (string-arg)) list-tasks-on-program]
    ;[("archive" (integer-arg) (integer-arg)) review-archive]
