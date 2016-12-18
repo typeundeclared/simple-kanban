@@ -5,6 +5,7 @@
 (provide kanban-initialize!
          kanban-insert-task!
          kanban-update-task-state!
+         kanban-update-task-nwa!
          kanban-query-task
          kanban-query-all-tasks
          kanban-query-tasks-by-state
@@ -17,15 +18,15 @@
     (query-exec (kanban-db the-kanban)
                 (string-append
                  "CREATE TABLE tasks "
-                 "(id INTEGER PRIMARY KEY, title TEXT, program TEXT, state INTEGER, start_date INTEGER, end_date INTEGER DEFAULT 0)")))
+                 "(id INTEGER PRIMARY KEY, title TEXT, program TEXT, nwa TEXT, state INTEGER, start_date INTEGER, end_date INTEGER DEFAULT 0)")))
   the-kanban)
 
-(: kanban-insert-task! (-> kanban String String Void))
-(define (kanban-insert-task! a-kanban title program)
+(: kanban-insert-task! (-> kanban String String String Void))
+(define (kanban-insert-task! a-kanban title program [nwa ""])
   (query-exec
    (kanban-db a-kanban)
-   "INSERT INTO tasks (title, program, state, start_date) VALUES (?, ?, ?, ?)"
-   title program (State->Value 'open) (current-seconds)))
+   "INSERT INTO tasks (title, program, nwa, state, start_date) VALUES (?, ?, ?, ?, ?)"
+   title program nwa (State->Value 'open) (current-seconds)))
 
 (: kanban-update-task-state! (-> kanban Integer State Void))
 (define (kanban-update-task-state! a-kanban id new-state)
@@ -38,6 +39,13 @@
      (kanban-db a-kanban)
      "UPDATE tasks set end_date=? where id=?"
      (current-seconds) id)))
+
+(: kanban-update-task-nwa! (-> kanban Integer String Void))
+(define (kanban-update-task-nwa! a-kanban id new-nwa)
+  (query-exec
+   (kanban-db a-kanban)
+   "UPDATE tasks set nwa=? where id=?"
+   new-nwa id))
 
 (: kanban-programs (-> kanban (Listof String)))
 (define (kanban-programs a-kanban)
@@ -52,14 +60,15 @@
   (for/list : (Listof task)
     ([p : (Vectorof Any) db-tasks])
     (match p
-      [(vector id title program state start end)
+      [(vector id title program nwa state start end)
        (if (and (exact-integer? id)
                 (string? title)
                 (string? program)
+                (string? nwa)
                 (exact-integer? state)
                 (exact-integer? start)
                 (exact-integer? end))
-           (task id title program (Value->State state) (seconds->date start) (seconds->date end))
+           (task id title program nwa (Value->State state) (seconds->date start) (seconds->date end))
            (error "bad types"))])))
 
 (: kanban-query-task (-> kanban Integer task))
@@ -67,17 +76,17 @@
   (first
    (process-tasks
    (query-rows (kanban-db a-kanban)
-               "select id, title, program, state, start_date, end_date from tasks where id=?" id))))
+               "select id, title, program, nwa, state, start_date, end_date from tasks where id=?" id))))
 
 (: kanban-query-all-tasks (-> kanban (Listof task)))
 (define (kanban-query-all-tasks a-kanban)
   (process-tasks
    (query-rows (kanban-db a-kanban)
-               "select id, title, program, state, start_date, end_date from tasks order by state, program, start_date")))
+               "select id, title, program, nwa, state, start_date, end_date from tasks order by state, program, start_date")))
 
 (: kanban-query-tasks-by-state (-> kanban State (Listof task)))
 (define (kanban-query-tasks-by-state a-kanban state)
   (process-tasks
    (query-rows (kanban-db a-kanban)
-               "select id, title, program, state, start_date, end_date from tasks where state=? order by state, program, start_date"
+               "select id, title, program, nwa, state, start_date, end_date from tasks where state=? order by state, program, start_date"
                (State->Value state))))  

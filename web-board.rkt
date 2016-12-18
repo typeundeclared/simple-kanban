@@ -29,15 +29,15 @@
 (define new-task-formlet
   (formlet
    (#%# ,{input-string . => . title}
-        ,{input-string . => . program})
-   (values title program)))
+        ,{input-string . => . program}
+        ,{input-string . => . nwa})
+   (values title program nwa)))
 
 (define (render-task-button a-task dir)
   (let-values ([(sym dir-func) (if (eq? dir 'previous)
                                    (values "<" previous-state)
                                    (values ">" next-state))])
     (define new-state (dir-func (task-state a-task)))
-    (print new-state)
     (if (eq? new-state (task-state a-task))
         sym
         `(form ([action ,(task-url change-task-state)])
@@ -105,18 +105,27 @@
            (link ((rel "stylesheet")
                   (href "/kanban.css")
                   (type "text/css")))
-           "Title:" ,(task-title tsk) (br)
-           "Program:" ,(task-program tsk) (br)
-           "State:" ,(string-titlecase (symbol->string (task-state tsk))) (br)
-           "Created:" ,(date->string (task-start-date tsk)) (br)
-           "Completed:" ,(if (<= 2000 (date-year (task-end-date tsk)))
-                             (date->string (task-end-date tsk))
-                             "")))))
+           (table
+            (tr (td "Title:") (td ,(task-title tsk)))
+            (tr (td "Program:") (td ,(task-program tsk)))
+            (tr (td "NWA:") (td
+                             (form ([action ,(task-url change-task-nwa
+                                                       (number->string (task-id tsk)))])
+                                   (input ([type "text"]
+                                           [name "nwa"]
+                                           [value ,(task-nwa tsk)]))
+                                   (input ([class "statebutton"] [type "submit"] [value "Update"])))))
+            (tr (td "State:") (td ,(string-titlecase (symbol->string (task-state tsk)))))
+            (tr (td "Created:") (td ,(date->string (task-start-date tsk))))
+            (tr (td "Completed:")
+                (td ,(if (<= 2000 (date-year (task-end-date tsk)))
+                         (date->string (task-end-date tsk))
+                         ""))))))))
 
 (define (handle-task-submission a-kanban request)
-  (define-values (title program)
+  (define-values (title program nwa)
     (formlet-process new-task-formlet request))
-  (kanban-insert-task! a-kanban title program)
+  (kanban-insert-task! a-kanban title program nwa)
   (redirect-to (task-url list-tasks)))
 
 (define (handle-task-state-change a-kanban request)
@@ -125,6 +134,13 @@
                              (string->number (extract-binding/single 'id bindings))
                              (Value->State (string->number (extract-binding/single 'new-state bindings))))
   (redirect-to (task-url list-tasks)))
+
+(define (handle-task-nwa-change a-kanban id request)
+  (define bindings (request-bindings request))
+  (kanban-update-task-nwa! a-kanban
+                           (string->number id)
+                           (extract-binding/single 'nwa bindings))
+  (redirect-to (task-url task-details id)))
 
 ;(define (render-programs-page a-task-list request)
 ;  (define (response-generator embed/url)
@@ -147,6 +163,8 @@
   (handle-task-state-change global-kanban request))
 (define (task-details request id)
   (render-task-details global-kanban id request))
+(define (change-task-nwa request id)
+  (handle-task-nwa-change global-kanban id request))
 
 (define-values (task-dispatch task-url)
   (dispatch-rules
@@ -154,6 +172,7 @@
    [("new-task") submit-task]
    [("update-task") change-task-state]
    [("task" (string-arg)) task-details]
+   [("update-nwa" (string-arg)) change-task-nwa]
    ;    [("programs") list-programs]
    ;[("programs" (string-arg)) list-tasks-on-program]
    ;[("archive" (integer-arg) (integer-arg)) review-archive]

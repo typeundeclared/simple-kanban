@@ -62,6 +62,7 @@
 (struct task ([id : Integer]
               [title : String]
               [program : String]
+              [nwa : String]  ; network-activity aka 'money source'
               [state : State]
               [start-date : date]
               [end-date : date])
