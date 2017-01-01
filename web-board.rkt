@@ -2,7 +2,9 @@
 (require racket/date)
 (require web-server/formlets)
 (require web-server/dispatch)
-(require web-server/servlet web-server/servlet-env)
+(require web-server/servlet
+         web-server/servlet-env
+	 web-server/configuration/responders)
 (require "kanban.rkt" "kanban-types.rkt")
 
 
@@ -78,7 +80,7 @@
    `(html (head (title "My Task List"))
           (body (h1 "My Tasks")
                 (link ((rel "stylesheet")
-                       (href "/kanban.css")
+                       (href "/todo/kanban.css")
                        (type "text/css")))
                 ;(a ((href ,(task-url list-programs))) "Programs")
                 (table
@@ -168,21 +170,24 @@
 
 (define-values (task-dispatch task-url)
   (dispatch-rules
-   [("") list-tasks]
-   [("new-task") submit-task]
-   [("update-task") change-task-state]
-   [("task" (string-arg)) task-details]
-   [("update-nwa" (string-arg)) change-task-nwa]
+   [("todo") list-tasks]
+   [("todo" "new-task") submit-task]
+   [("todo" "update-task") change-task-state]
+   [("todo" "task" (string-arg)) task-details]
+   [("todo" "update-nwa" (string-arg)) change-task-nwa]
+   [("todo" "kanban.css") (λ (_) (file-response 200 #"OK" "kanban.css"))]
    ;    [("programs") list-programs]
-   ;[("programs" (string-arg)) list-tasks-on-program]
-   ;[("archive" (integer-arg) (integer-arg)) review-archive]
+   ;[("todo" "programs" (string-arg)) list-tasks-on-program]
+   ;[("todo" "archive" (integer-arg) (integer-arg)) review-archive]
    ))
 
 (define (start request)
   (task-dispatch request))
 
 (serve/servlet start
-               #:servlet-path "/"
+	       #:command-line? #t
+               #:servlet-path "/todo"
                #:servlet-regexp #rx""
-               #:extra-files-paths (list "./")
+	       #:server-root-path (current-directory)
+	       #:extra-files-paths (list (current-directory))
                #:port 8181)
